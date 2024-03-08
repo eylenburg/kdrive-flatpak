@@ -1,0 +1,93 @@
+app-id: com.infomaniak.kdrive
+
+runtime: org.kde.Platform
+runtime-version: 5.15-23.08
+sdk: org.kde.Sdk
+
+base: io.qt.qtwebengine.BaseApp
+base-version: 5.15-23.08
+
+command: start-kdrive-flatpak.sh
+
+finish-args:
+  - --device=dri
+  - --socket=x11 # if using wayland, even with fallback-x11, you get "could not connect to display" errors
+  - --env=XDG_SESSION_TYPE=x11 # otherwise get "could not connect to display" errors
+  - --env=QT_QPA_PLATFORM=xcb # otherwise get "could not connect to display" errors
+  - --unset-env=WAYLAND_DISPLAY # otherwise get "could not connect to display" errors
+  - --unset-env=SESSION_MANAGER # otherwise get "Qt Session management error Could not open network socket"
+  - --share=network
+  - --share=ipc
+  - --filesystem=home
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=org.kde.kwalletd5
+  - --filesystem=xdg-run/keyring
+
+modules:
+  - shared-modules/libsecret/libsecret.json
+
+  - name: qtkeychain
+    buildsystem: cmake
+    config-opts:
+      - -DCMAKE_INSTALL_LIBDIR=lib
+      - -DBUILD_TRANSLATIONS=NO
+    cleanup:      
+      - /include
+      - /mkspecs
+      - /lib/cmake
+    sources:
+      - type: archive
+        url: https://github.com/frankosterfeld/qtkeychain/archive/0.14.2.tar.gz
+        sha256: cf2e972b783ba66334a79a30f6b3a1ea794a1dc574d6c3bebae5ffd2f0399571
+        x-checker-data:
+          type: anitya
+          url-template: https://github.com/frankosterfeld/qtkeychain/archive/$version.tar.gz
+          stable-only: true
+          project-id: 4138
+  
+  - name: kdrive
+    buildsystem: simple
+    build-commands:
+      # Extract the Appimage
+     - chmod a+x kDrive.AppImage
+     - ./kDrive.AppImage --appimage-extract >/dev/null
+     - chmod -R --reference=kDrive.AppImage squashfs-root
+     - rm ./kDrive.AppImage
+     # Patch .desktop file with the new icon and binary location
+     - sed -i -e 's/Icon.*/Icon=com.infomaniak.kdrive/' squashfs-root/kDrive_client.desktop
+     - sed -i -e 's/Exec.*/Exec=start-kdrive-flatpak.sh %F/' squashfs-root/kDrive_client.desktop
+     # Move things into place
+     - cp squashfs-root/usr/bin/sync-exclude.lst squashfs-root/sync-exclude.lst # otherwise kDrive won't start
+     - rm squashfs-root/usr/lib/libgnutls.so.30
+     - mkdir /app/kdrive
+     - cp -r squashfs-root/* /app/kdrive
+     - install -Dm644 squashfs-root/kDrive_client.desktop /app/share/applications/com.infomaniak.kdrive.desktop
+     - |
+       for s in 16 32 48 64 128 256 512; do
+         install -Dm644 squashfs-root/usr/share/icons/hicolor/${s}x${s}/apps/kdrive-win.png /app/share/icons/hicolor/${s}x${s}/apps/com.infomaniak.kdrive.png
+       done
+     - install -Dm644 com.infomaniak.kdrive.appdata.xml /app/share/appdata/com.infomaniak.kdrive.appdata.xml
+     - install -Dm544 start-kdrive-flatpak.sh /app/bin/start-kdrive-flatpak.sh
+    sources:
+      - type: file
+        url: https://download.storage.infomaniak.com/drive/desktopclient/kDrive-3.5.7.20240124-amd64.AppImage
+        sha256: ab99aa9252d9e7c613d2a4247d368a6369926062b54ad7ddbb1ab36f1d591d4b
+        only-arches:
+         - x86_64
+        dest-filename: kDrive.AppImage
+      - type: file
+        url: https://download.storage.infomaniak.com/drive/desktopclient/kDrive-3.5.7.20240124-arm64.AppImage
+        sha256: 894f7544bfe302d747dd77d0769f69889e0bee6f1e6dbdce1c3410bd864519f3
+        only-arches:
+         - aarch64
+        dest-filename: kDrive.AppImage
+      - type: file
+        path: com.infomaniak.kdrive.appdata.xml
+      - type: script
+        dest-filename: start-kdrive-flatpak.sh
+        commands:
+          - /app/kdrive/AppRun "$@"
+# potentially add some kind of update checking here
+
